@@ -1,5 +1,5 @@
 /* KebunRakyat SPMS — Service Worker (offline shell + cache tile peta yang pernah dibuka) */
-var VERSION = 'spms-1.1.0';
+var VERSION = 'spms-1.2.0';
 var SHELL = VERSION + '-shell', CDN = VERSION + '-cdn', TILES = 'spms-tiles';
 var SHELL_FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 // Versi demo: berkas tambahan (app.html, backend.js) ikut di-cache bila ada
