@@ -16,7 +16,13 @@
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
 .hidden{display:none!important}
 #appFrame{position:fixed;inset:0;width:100%;height:100%;border:0;background:var(--bg)}
-#fab{position:fixed;left:12px;bottom:calc(74px + env(safe-area-inset-bottom));z-index:20;background:var(--acc);color:#1b1b1b;border:0;border-radius:99px;padding:9px 13px;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.25);font-size:12px;opacity:.92}
+#fab{position:fixed;z-index:20;width:46px;height:46px;border-radius:50%;background:var(--acc);border:2px solid #fff;box-shadow:0 4px 14px rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;font-size:20px;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;opacity:.82;padding:0}
+#fab.snap{transition:left .22s ease,top .22s ease}#fab:active{opacity:1}
+#fabTab{position:fixed;z-index:20;width:14px;height:54px;background:var(--acc);opacity:.6;border:0;padding:0;box-shadow:0 2px 8px rgba(0,0,0,.25);touch-action:none}
+#fabTab.l{left:0;border-radius:0 10px 10px 0}#fabTab.r{right:0;border-radius:10px 0 0 10px}
+#fabMenu{position:fixed;z-index:22;background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:6px;min-width:230px}
+#fabMenu button{display:block;width:100%;text-align:left;border:0;background:none;padding:11px 12px;border-radius:9px;font:500 14px system-ui;cursor:pointer}#fabMenu button:hover{background:#f0f4f1}
+#fabMask{position:fixed;inset:0;z-index:21}
 #field{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg)}
 header{background:var(--pri);color:#fff;display:flex;align-items:center;gap:10px;padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top))}
 header img{width:34px;height:34px;border-radius:9px}header b{flex:1;font-size:15px}.badge{font-size:11px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.18);white-space:nowrap}
@@ -37,7 +43,9 @@ img.pv{max-width:100%;border-radius:10px;margin-top:8px}
 </head>
 <body>
 <iframe id="appFrame" class="hidden" title="KebunRakyat SPMS" allow="geolocation *; camera *; microphone *; clipboard-write *; fullscreen *; serial *"></iframe>
-<button id="fab" class="hidden" onclick="F.open()">⚡ Mode Lapangan</button>
+<button id="fab" class="hidden" title="Mode Lapangan — geser untuk memindahkan, ketuk untuk menu" aria-label="Mode Lapangan">⚡</button>
+<button id="fabTab" class="hidden" title="Tampilkan tombol Mode Lapangan" aria-label="Tampilkan tombol"></button>
+<div id="fabMask" class="hidden"></div><div id="fabMenu" class="hidden"></div>
 <section id="field" class="hidden">
   <header><img src="icon-192.png" alt=""><b id="fTitle">Mode Lapangan</b><span class="badge" id="fNet"></span></header>
   <main id="fMain"></main>
@@ -45,7 +53,7 @@ img.pv{max-width:100%;border-radius:10px;margin-top:8px}
 <div id="toast" class="hidden"></div>
 <script>
 /* ============ KONFIGURASI: ganti dengan URL Web App Apps Script Anda (akhiran /exec) ============ */
-var CONFIG = { GAS_URL: 'https://script.google.com/macros/s/AKfycbyxL8rEhy_Dd_JltEHEcUAsj_bems-uQ8pMy82Uv0JxRE0b07uKXqLYStae3rJWalnm/exec', APP_NAME: 'KebunRakyat SPMS', VERSION: '1.0.0' };
+var CONFIG = { GAS_URL: 'https://script.google.com/macros/s/AKfycbyxL8rEhy_Dd_JltEHEcUAsj_bems-uQ8pMy82Uv0JxRE0b07uKXqLYStae3rJWalnm/exec', APP_NAME: 'KebunRakyat SPMS', VERSION: '1.1.0', DEMO: false };
 /* ============================================================================================ */
 'use strict';
 var $ = function (s) { return document.querySelector(s); };
@@ -67,17 +75,67 @@ var IDB = {
 
 /* ---------- Server (doPost Apps Script, text/plain → tanpa preflight CORS) ---------- */
 function post(action, payload) {
+  if (CONFIG.DEMO && window.DemoBackend) return window.DemoBackend(action, payload, LS.get('token', '')).then(function (r) { if (!r.ok) { if (r.auth) LS.del('token'); throw new Error(r.error); } return r.data; });
   return fetch(CONFIG.GAS_URL, { method: 'POST', body: JSON.stringify({ action: action, token: LS.get('token', ''), payload: payload || {} }), redirect: 'follow' })
     .then(function (r) { return r.json(); }).then(function (r) { if (!r.ok) { if (r.auth) { LS.del('token'); } throw new Error(r.error); } return r.data; });
 }
 
 /* ---------- Mode aplikasi penuh (online) ---------- */
-var configured = CONFIG.GAS_URL.indexOf('GANTI_') < 0;
+var configured = CONFIG.DEMO || CONFIG.GAS_URL.indexOf('GANTI_') < 0;
 function openApp() {
   if (!configured) { F.open(); toast('Atur CONFIG.GAS_URL di index.html terlebih dahulu.', 5000); return; }
-  var fr = $('#appFrame'); if (!fr.src) fr.src = CONFIG.GAS_URL;
-  fr.classList.remove('hidden'); $('#field').classList.add('hidden'); $('#fab').classList.remove('hidden');
+  var fr = $('#appFrame'); if (!fr.src) fr.src = CONFIG.DEMO ? 'app.html' : CONFIG.GAS_URL;
+  fr.classList.remove('hidden'); $('#field').classList.add('hidden'); Fab.show(true);
 }
+
+/* ---------- Tombol mengambang Mode Lapangan: geser, menempel ke tepi, ciutkan ke tab, atau sembunyikan penuh ---------- */
+var Fab = {
+  st: LS.get('fab', { side: 'right', y: 0.7, hidden: 0 }), on: false,
+  save: function () { LS.set('fab', Fab.st); },
+  show: function (on) { Fab.on = on; Fab.place(); },
+  place: function () {
+    var b = $('#fab'), t = $('#fabTab'), st = Fab.st, H = innerHeight, W = innerWidth;
+    var y = Math.max(70, Math.min(H - 70, st.y * H));
+    b.classList.toggle('hidden', !Fab.on || st.hidden !== 0); t.classList.toggle('hidden', !Fab.on || st.hidden !== 1);
+    b.style.left = (st.side === 'left' ? 8 : W - 54) + 'px'; b.style.top = (y - 23) + 'px';
+    t.className = (!Fab.on || st.hidden !== 1 ? 'hidden ' : '') + (st.side === 'left' ? 'l' : 'r'); t.style.top = (y - 27) + 'px';
+  },
+  menu: function () {
+    var m = $('#fabMenu'), b = $('#fab').getBoundingClientRect();
+    m.innerHTML = '<button data-a="open">⚡ Buka Mode Lapangan (offline)</button><button data-a="tab">◧ Ciutkan ke tepi layar</button><button data-a="hide">✕ Sembunyikan penuh</button><div style="font-size:11px;color:#777;padding:4px 12px 6px">Geser tombol ⚡ untuk memindahkan. Tombol yang disembunyikan penuh dapat dimunculkan lagi dari menu aplikasi → Lainnya → Mode Lapangan.</div>';
+    m.classList.remove('hidden'); $('#fabMask').classList.remove('hidden');
+    var mw = m.offsetWidth, mh = m.offsetHeight;
+    m.style.left = Math.max(8, Math.min(innerWidth - mw - 8, Fab.st.side === 'left' ? b.left : b.right - mw)) + 'px';
+    m.style.top = Math.max(8, Math.min(innerHeight - mh - 8, b.top - mh - 8 > 8 ? b.top - mh - 8 : b.bottom + 8)) + 'px';
+    Array.prototype.forEach.call(m.querySelectorAll('[data-a]'), function (x) { x.onclick = function () { Fab.close(); var a = x.dataset.a;
+      if (a === 'open') F.open(); if (a === 'tab') { Fab.st.hidden = 1; Fab.save(); Fab.place(); toast('Ketuk tab kecil di tepi untuk memunculkan lagi.'); }
+      if (a === 'hide') { Fab.st.hidden = 2; Fab.save(); Fab.place(); toast('Tombol disembunyikan. Buka lagi dari menu aplikasi → Mode Lapangan.', 4500); } }; });
+  },
+  close: function () { $('#fabMenu').classList.add('hidden'); $('#fabMask').classList.add('hidden'); },
+  init: function () {
+    var b = $('#fab'), drag = null;
+    b.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, moved: false }; b.setPointerCapture(e.pointerId); b.classList.remove('snap'); });
+    b.addEventListener('pointermove', function (e) { if (!drag) return; if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6) return; drag.moved = true;
+      b.style.left = Math.max(0, Math.min(innerWidth - 46, e.clientX - 23)) + 'px'; b.style.top = Math.max(0, Math.min(innerHeight - 46, e.clientY - 23)) + 'px'; });
+    var end = function (e) { if (!drag) return; var d = drag; drag = null;
+      if (!d.moved) return Fab.menu();
+      Fab.st.side = e.clientX < innerWidth / 2 ? 'left' : 'right'; Fab.st.y = Math.max(0.08, Math.min(0.92, e.clientY / innerHeight));
+      // tarik ke tepi paling luar → otomatis ciut jadi tab
+      if (e.clientX < 4 || e.clientX > innerWidth - 4) Fab.st.hidden = 1;
+      Fab.save(); b.classList.add('snap'); Fab.place(); };
+    b.addEventListener('pointerup', end); b.addEventListener('pointercancel', end);
+    $('#fabTab').onclick = function () { Fab.st.hidden = 0; Fab.save(); Fab.place(); };
+    $('#fabMask').onclick = Fab.close;
+    window.addEventListener('resize', Fab.place);
+    // permintaan dari aplikasi Apps Script (menu → Mode Lapangan)
+    window.addEventListener('message', function (e) {
+      if (!e.data || e.data.spms !== 'field') return;
+      try { e.source && e.source.postMessage({ spms: 'ack' }, '*'); } catch (x) {}
+      Fab.st.hidden = 0; Fab.save(); F.open();
+    });
+  }
+};
+Fab.init();
 
 /* ---------- Tombol Back: tidak menutup aplikasi ---------- */
 var exitArm = 0;
@@ -95,7 +153,7 @@ window.addEventListener('popstate', function (e) {
 /* ---------- Mode Lapangan ---------- */
 var F = {
   stack: [], map: null, sv: null, watch: null,
-  open: function () { $('#appFrame').classList.add('hidden'); $('#fab').classList.add('hidden'); $('#field').classList.remove('hidden'); F.stack = []; F.go(LS.get('token', '') ? 'home' : 'login'); },
+  open: function () { Fab.close(); $('#appFrame').classList.add('hidden'); Fab.show(false); $('#field').classList.remove('hidden'); F.stack = []; F.go(LS.get('token', '') ? 'home' : 'login'); },
   go: function (v, p) { F.stop(); F.stack.push([v, p]); F[v](p || {}); F.net(); },
   back: function () { F.stop(); F.stack.pop(); var t = F.stack[F.stack.length - 1] || ['home']; F[t[0]](t[1] || {}); },
   stop: function () { if (F.watch !== null) { navigator.geolocation.clearWatch(F.watch); F.watch = null; } if (F.map) { try { F.map.stop(); F.map.off(); F.map.remove(); } catch (e) {} F.map = null; } },
@@ -115,7 +173,7 @@ var F = {
   home: function () {
     var d = F.data();
     $('#fMain').innerHTML = '<div class="card"><div class="row"><div class="sp"><b>' + esc(d.user.name || '') + '</b><div class="tiny muted">' + esc(d.user.role || '') + ' · data perangkat ' + (d.at ? new Date(d.at).toLocaleString('id-ID') : '-') + '</div></div><button class="btn" id="hRef">⟳ Data</button></div></div>' +
-      '<div class="grid"><div class="tile" data-v="survey"><span>📍</span>Ukur Batas Lahan</div><div class="tile" data-v="tree"><span>🌴</span>Catat Pohon</div><div class="tile" data-v="pest"><span>🐛</span>Lapor Hama/Penyakit</div><div class="tile" data-v="queue"><span>⇅</span>Antrean & Sinkron</div></div>' +
+      '<div class="grid"><div class="tile" data-v="survey"><span>📍</span>Ukur Batas Lahan</div><div class="tile" data-v="tree"><span>🌴</span>Catat Pohon</div><div class="tile" data-v="pest"><span>🐛</span>Lapor Hama/Penyakit</div><div class="tile" data-v="queue"><span>⇅</span>Antrean & Sinkron</div><div class="tile" data-v="drone" style="grid-column:1/-1"><span>🛰</span>Foto Udara Drone (PMTiles)</div></div>' +
       '<div class="card" style="margin-top:12px"><p class="tiny muted">Peta jalan (OpenStreetMap) yang pernah Anda lihat saat online tersimpan di perangkat. Citra satelit hanya tersedia saat online (ketentuan penyedia). Batas bidang & titik GPS tetap tampil tanpa internet.</p>' +
       (configured ? '<button class="btn block pri" onclick="openApp()">Buka aplikasi lengkap</button>' : '') + '<button class="btn block" id="hOut">Keluar dari mode lapangan</button><p class="tiny muted">' + esc(CONFIG.APP_NAME) + ' PWA v' + CONFIG.VERSION + '</p></div>';
     Array.prototype.forEach.call(document.querySelectorAll('[data-v]'), function (t) { t.onclick = function () { F.go(t.dataset.v); }; });
@@ -127,7 +185,8 @@ var F = {
     F.map = L.map(el, { zoomControl: true, maxZoom: 21 }).setView([-2.5, 118], 5);
     var osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxNativeZoom: 19, maxZoom: 21, attribution: '© OpenStreetMap contributors' }).addTo(F.map);
     var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxNativeZoom: 19, maxZoom: 21, attribution: 'Tiles © Esri — Esri, Maxar, Earthstar Geographics' });
-    L.control.layers({ 'Peta jalan (tersimpan offline)': osm, 'Citra satelit (online)': sat }).addTo(F.map);
+    var ctl = L.control.layers({ 'Peta jalan (tersimpan offline)': osm, 'Citra satelit (online)': sat }, null, { collapsed: true }).addTo(F.map);
+    PM.attach(F.map, ctl);
     F.ref = L.layerGroup().addTo(F.map);
   },
   showParcel: function (pid) { F.ref.clearLayers(); var b = F.data().Bidang.filter(function (x) { return x.id === pid; })[0]; if (b && b.geom) { var g = L.geoJSON(JSON.parse(b.geom), { style: { color: '#ffd400', dashArray: '6 4', fillOpacity: 0 } }).addTo(F.ref); F.map.fitBounds(g.getBounds(), { padding: [20, 20], animate: false }); } },
@@ -194,6 +253,21 @@ var F = {
       IDB.put({ id: uid(), type: 'save', ent: 'HamaPenyakit', label: data.kind + ': ' + data.name, at: new Date().toISOString(), payload: { ent: 'HamaPenyakit', data: data }, photo: w.photo(), photoCat: data.kind === 'Hama' ? 'Hama' : 'Penyakit', pos: p }).then(function () { toast('Tersimpan di antrean.'); F.back(); Sync.run(); });
     };
   },
+  drone: function () {
+    var ls = PM.list();
+    (navigator.storage && navigator.storage.estimate ? navigator.storage.estimate() : Promise.resolve({})).then(function (est) {
+      $('#fMain').innerHTML = '<div class="card"><h3>Foto Udara Drone (PMTiles)</h3><p class="tiny muted">Orthomosaic drone format .pmtiles (raster JPG/PNG/WEBP) tampil sebagai layer 🛰 di peta survei — juga tanpa internet. File besar (GB) disalin sekali ke penyimpanan aplikasi dan dibaca per bagian, tidak dimuat penuh ke memori.</p>' +
+        (ls.length ? ls.map(function (l) { return '<div class="q"><span class="sp"><b>' + esc(l.name) + '</b><br><span class="tiny muted">' + (l.kind === 'opfs' ? 'offline · ' + PM.size(l.size) : l.kind === 'url' ? 'online' : l.kind === 'mem' ? 'demo' : 'sesi ini') + ' · zoom ' + l.minZoom + '–' + l.maxZoom + '</span></span><button class="btn" data-del="' + l.id + '">Hapus</button></div>'; }).join('') : '<p class="muted">Belum ada layer.</p>') +
+        '<label>Tambah dari file (offline)</label><input type="file" id="dF" accept=".pmtiles"><div id="dP" class="tiny"></div>' +
+        '<label>atau URL online (server dengan HTTP Range + CORS)</label><div class="row"><input id="dU" placeholder="https://…/ortho.pmtiles" class="sp"><button class="btn" id="dUb">Tambah</button></div>' +
+        (est.quota ? '<p class="tiny muted">Penyimpanan perangkat: terpakai ' + PM.size(est.usage) + ' dari ' + PM.size(est.quota) + '.</p>' : '') +
+        '<button class="btn block" onclick="F.back()">‹ Kembali</button></div>';
+      Array.prototype.forEach.call(document.querySelectorAll('[data-del]'), function (b) { b.onclick = function () { if (confirm('Hapus layer ini dari perangkat?')) PM.remove(b.dataset.del).then(F.drone); }; });
+      $('#dF').onchange = function () { var f = this.files[0]; if (!f) return; $('#dP').textContent = 'Memeriksa ' + PM.size(f.size) + '…';
+        PM.addFile(f, function (p) { $('#dP').textContent = 'Menyalin ke perangkat… ' + Math.round(p * 100) + '%'; }).then(function (l) { toast('Layer "' + l.name + '" siap' + (l.kind === 'opfs' ? ' (offline).' : ' (sesi ini saja).')); F.drone(); }).catch(function (e) { $('#dP').textContent = e.message; }); };
+      $('#dUb').onclick = function () { var u = $('#dU').value.trim(); if (!/^https?:\/\//.test(u)) return toast('URL tidak valid.'); PM.addUrl('', u).then(function () { toast('Layer online ditambahkan.'); F.drone(); }).catch(function (e) { toast('Gagal: ' + e.message, 5000); }); };
+    });
+  },
   queue: function () {
     IDB.all().then(function (q) {
       $('#fMain').innerHTML = '<div class="card"><div class="row"><h3 class="sp">Antrean (' + q.length + ')</h3><button class="btn pri" id="qS"' + (q.length ? '' : ' disabled') + '>⇅ Sinkron sekarang</button></div>' +
@@ -238,6 +312,55 @@ var Geo = {
     for (var i = 0; i < r.length - 1; i++) for (var j = i + 2; j < r.length - 1; j++) { if (i === 0 && j === r.length - 2) continue; var a = o(r[i], r[i + 1], r[j]), b = o(r[i], r[i + 1], r[j + 1]), c = o(r[j], r[j + 1], r[i]), d = o(r[j], r[j + 1], r[i + 1]); if (a && b && c && d && a !== b && c !== d) return true; } return false; }
 };
 function compress(file, max, q) { return new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { var im = new Image(); im.onload = function () { var s = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * s); c.height = Math.round(im.height * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', q)); }; im.onerror = rej; im.src = fr.result; }; fr.readAsDataURL(file); }); }
+
+/* ---------- Foto udara drone PMTiles (offline: OPFS, online: URL) ---------- */
+var PM = {
+  LIB: 'https://unpkg.com/pmtiles@4.5.0/dist/pmtiles.js', inst: {}, files: {}, mem: {},
+  ready: function () { return window.pmtiles ? Promise.resolve() : new Promise(function (res, rej) { var s = document.createElement('script'); s.src = PM.LIB; s.onload = res; s.onerror = function () { rej(new Error('Pustaka PMTiles belum tersimpan — buka aplikasi sekali saat online.')); }; document.head.appendChild(s); }); },
+  list: function () { return LS.get('pmt', []); }, save: function (a) { LS.set('pmt', a); },
+  size: function (b) { return b > 1e9 ? nf(b / 1e9, 2) + ' GB' : b > 1e6 ? nf(b / 1e6, 1) + ' MB' : nf(b / 1e3, 0) + ' KB'; },
+  dir: function () { return navigator.storage.getDirectory().then(function (r) { return r.getDirectoryHandle('pmtiles', { create: true }); }); },
+  check: function (pm) { return pm.getHeader().then(function (h) { if (h.tileType === 1 || h.tileType === 6) throw new Error('Arsip berisi tile vektor; gunakan PMTiles raster (ortho drone).'); return h; }); },
+  meta: function (h) { return { bounds: [h.minLon, h.minLat, h.maxLon, h.maxLat], minZoom: h.minZoom, maxZoom: h.maxZoom }; },
+  open: function (l) {
+    if (PM.inst[l.id]) return Promise.resolve(PM.inst[l.id]);
+    return PM.ready().then(function () {
+      if (l.kind === 'url') return new pmtiles.PMTiles(l.url);
+      if (l.kind === 'mem') return new pmtiles.PMTiles({ getKey: function () { return l.id; }, getBytes: function (o, n) { return Promise.resolve({ data: PM.mem[l.id].slice(o, o + n) }); } });
+      if (l.kind === 'session') { if (!PM.files[l.id]) throw new Error('pilih ulang file'); return new pmtiles.PMTiles(new pmtiles.FileSource(PM.files[l.id])); }
+      return PM.dir().then(function (d) { return d.getFileHandle(l.id + '.pmtiles'); }).then(function (h) { return h.getFile(); }).then(function (f) { return new pmtiles.PMTiles(new pmtiles.FileSource(f)); });
+    }).then(function (pm) { return PM.check(pm).then(function (h) { return (PM.inst[l.id] = { pm: pm, h: h }); }); });
+  },
+  addFile: function (file, prog) {
+    var id = 'f' + uid(), l = { id: id, name: file.name.replace(/\.pmtiles$/i, ''), size: file.size, on: 1 };
+    return PM.ready().then(function () { return PM.check(new pmtiles.PMTiles(new pmtiles.FileSource(file))); }).then(function (h) {
+      Object.assign(l, PM.meta(h));
+      if (!(navigator.storage && navigator.storage.getDirectory)) { l.kind = 'session'; PM.files[id] = file; return l; }
+      return navigator.storage.estimate().then(function (est) {
+        if (est.quota && est.quota - est.usage < file.size * 1.02) throw new Error('Ruang penyimpanan tidak cukup (perlu ' + PM.size(file.size) + ', tersedia ' + PM.size(est.quota - est.usage) + ').');
+        if (navigator.storage.persist) navigator.storage.persist();
+        return PM.dir().then(function (d) { return d.getFileHandle(id + '.pmtiles', { create: true }); }).then(function (fh) { return fh.createWritable(); }).then(function (w) {
+          var rd = file.stream().getReader(), done = 0;
+          var pump = function () { return rd.read().then(function (r) { if (r.done) return w.close(); done += r.value.length; prog && prog(done / file.size); return w.write(r.value).then(pump); }); };
+          return pump();
+        }).then(function () { l.kind = 'opfs'; return l; });
+      }).catch(function (e) { if (/createWritable|not a function|NotAllowed|Security/i.test(e.message)) { l.kind = 'session'; PM.files[id] = file; return l; } throw e; });
+    }).then(function (x) { var a = PM.list(); a.push(x); PM.save(a); return x; });
+  },
+  addUrl: function (name, url) {
+    return PM.ready().then(function () { return PM.check(new pmtiles.PMTiles(url)); }).then(function (h) { var l = Object.assign({ id: 'u' + uid(), name: name || url.split('/').pop(), kind: 'url', url: url, on: 1 }, PM.meta(h)); var a = PM.list(); a.push(l); PM.save(a); return l; });
+  },
+  remove: function (id) { var l = PM.list().filter(function (x) { return x.id === id; })[0]; PM.save(PM.list().filter(function (x) { return x.id !== id; })); delete PM.inst[id];
+    return l && l.kind === 'opfs' ? PM.dir().then(function (d) { return d.removeEntry(id + '.pmtiles'); }).catch(function () {}) : Promise.resolve(); },
+  /** pasang ke peta lapangan sebagai overlay pada kontrol layer */
+  attach: function (map, ctl) {
+    PM.list().forEach(function (l) { PM.open(l).then(function (o) {
+      if (!F.map || F.map !== map) return;
+      var lyr = pmtiles.leafletRasterLayer(o.pm, { maxNativeZoom: o.h.maxZoom, minNativeZoom: o.h.minZoom, maxZoom: 22, zIndex: 5, bounds: L.latLngBounds([o.h.minLat, o.h.minLon], [o.h.maxLat, o.h.maxLon]), attribution: 'Foto udara: ' + esc(l.name) });
+      ctl.addOverlay(lyr, '🛰 ' + esc(l.name)); if (l.on) lyr.addTo(map);
+    }).catch(function () {}); });
+  }
+};
 
 /* ---------- Mulai ---------- */
 window.addEventListener('online', function () { F.net(); Sync.run(); });
